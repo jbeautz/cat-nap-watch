@@ -1,4 +1,4 @@
-CatNap Watch – Automated Cat Perch Monitoring 🐱📸
+# CatNap Watch – Automated Cat Perch Monitoring 🐱📸
 Overview
 
 CatNap Watch is a Raspberry Pi project that monitors your cat’s favorite perch or bed. It captures photos at regular intervals, detects when something interesting happens, identifies the cat, and triggers AI-generated updates.
