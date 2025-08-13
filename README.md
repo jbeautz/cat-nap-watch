@@ -49,7 +49,12 @@ source catnap_env/bin/activate
 python test_catnap.py
 ```
 
-5. **Run CatNap Watch**:
+5. **Test camera and email** (recommended):
+```bash
+python test_camera_email.py
+```
+
+6. **Run CatNap Watch**:
 ```bash
 python catnap_watch.py
 ```
@@ -118,6 +123,7 @@ CatNapWatch/
 ├── requirements.txt      # Python dependencies
 ├── setup_pi.sh           # Automated setup script for Raspberry Pi
 ├── test_catnap.py        # Test script to verify installation
+├── test_camera_email.py  # Camera and email test with photo capture
 ├── catnap-watch.service  # Systemd service file for auto-start
 ├── .env.example          # Environment variables template
 ├── .env                  # Your actual environment variables (create this)
@@ -152,7 +158,7 @@ EMAIL_TO=recipient@gmail.com
 
 ## Testing
 
-Run the test suite to verify everything is working:
+Run the comprehensive test suite to verify everything is working:
 
 ```bash
 python test_catnap.py
@@ -162,6 +168,20 @@ This will test:
 - Camera functionality
 - Motion detection
 - OpenAI API connection
+
+**For a quick camera and email test:**
+
+```bash
+python test_camera_email.py
+```
+
+This focused test will:
+- Take a test photo with your Pi camera
+- Save it with timestamp
+- Email the photo to you (if email is configured)
+- Verify both camera and email functionality
+
+This is perfect for quickly testing your hardware setup!
 
 ## Troubleshooting
 
