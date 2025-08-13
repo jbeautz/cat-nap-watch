@@ -22,19 +22,76 @@ Features
 
 Setup
 
-    Install Python dependencies:
+## Quick Setup for Raspberry Pi Zero
 
-pip install opencv-python openai
+1. **Clone or download this project** to your Raspberry Pi:
+```bash
+cd /home/pi
+git clone https://github.com/jbeautz/cat-nap-watch.git
+cd cat-nap-watch
+```
 
-    Connect your Raspberry Pi camera and enable it via raspi-config.
+2. **Run the automated setup script**:
+```bash
+chmod +x setup_pi.sh
+./setup_pi.sh
+```
 
-    Set your OpenAI API key in the environment:
+3. **Configure your API key**:
+```bash
+cp .env.example .env
+nano .env  # Add your OpenAI API key
+```
 
-export OPENAI_API_KEY="your_api_key_here"
+4. **Test the installation**:
+```bash
+source catnap_env/bin/activate
+python test_catnap.py
+```
 
-    Run the main CatNap Watch script:
-
+5. **Run CatNap Watch**:
+```bash
 python catnap_watch.py
+```
+
+## Manual Setup Steps
+
+If you prefer manual installation:
+
+1. **Install Python dependencies**:
+```bash
+pip install opencv-python openai python-dotenv
+```
+
+2. **Connect your Raspberry Pi camera** and enable it via raspi-config:
+```bash
+sudo raspi-config
+# Navigate to: Interface Options > Camera > Enable
+```
+
+3. **Set your OpenAI API key** in a `.env` file:
+```bash
+cp .env.example .env
+# Edit .env and add: OPENAI_API_KEY=your_actual_api_key_here
+```
+
+4. **Run the main CatNap Watch script**:
+```bash
+python catnap_watch.py
+```
+
+## Running as a Service (Optional)
+
+To run CatNap Watch automatically on boot:
+
+```bash
+sudo cp catnap-watch.service /etc/systemd/system/
+sudo systemctl enable catnap-watch
+sudo systemctl start catnap-watch
+
+# Check status
+sudo systemctl status catnap-watch
+```
 
 How It Works
 
@@ -50,18 +107,85 @@ How It Works
 
     Save & Notify – Saves the photo and sends the AI-generated email.
 
-Folder Structure (Suggested)
+Folder Structure
 
+```
 CatNapWatch/
 ├── README.md             # This overview
 ├── catnap_watch.py       # Main Pi loop: capture, detect, save, trigger
 ├── catnap_diaries.py     # AI email generation logic
-├── photos/               # Saved cat photos with timestamps
-├── config.py             # Thresholds, timing, API keys
+├── config.py             # Thresholds, timing, API keys configuration
 ├── requirements.txt      # Python dependencies
+├── setup_pi.sh           # Automated setup script for Raspberry Pi
+├── test_catnap.py        # Test script to verify installation
+├── catnap-watch.service  # Systemd service file for auto-start
+├── .env.example          # Environment variables template
+├── .env                  # Your actual environment variables (create this)
+├── photos/               # Saved cat photos with timestamps
+├── catnap_watch.log      # Application logs
 └── docs/                 # Optional diagrams or guides
+```
 
-Future Improvements
+## Configuration
+
+The `config.py` file contains all the adjustable settings:
+
+- `CAPTURE_INTERVAL`: Time between captures (default: 60 seconds)
+- `DIFF_THRESHOLD`: Motion sensitivity (default: 5000)
+- `CAT_BRIGHTNESS_THRESHOLD`: Minimum brightness to detect cat presence
+- `LIGHT_CAT_THRESHOLD`: Threshold to distinguish light vs dark cats
+
+## Email Setup (Optional)
+
+To receive actual emails instead of console output:
+
+1. Add email credentials to your `.env` file:
+```
+EMAIL_FROM=your_email@gmail.com
+EMAIL_PASSWORD=your_app_password
+EMAIL_TO=recipient@gmail.com
+```
+
+2. For Gmail, create an App Password:
+   - Enable 2FA on your Google account
+   - Generate an App Password: https://support.google.com/accounts/answer/185833
+
+## Testing
+
+Run the test suite to verify everything is working:
+
+```bash
+python test_catnap.py
+```
+
+This will test:
+- Camera functionality
+- Motion detection
+- OpenAI API connection
+
+## Troubleshooting
+
+**Camera Issues:**
+- Ensure camera is properly connected and enabled: `sudo raspi-config`
+- Check if camera is detected: `vcgencmd get_camera`
+- Verify camera permissions for the pi user
+
+**OpenAI API Issues:**
+- Verify your API key in the `.env` file
+- Check your OpenAI account has available credits
+- Test API connection with `python test_catnap.py`
+
+**Performance on Pi Zero:**
+- The default settings are optimized for Pi Zero's limited resources
+- Consider increasing `CAPTURE_INTERVAL` if the system is struggling
+- Monitor system resources with `htop`
+
+**False Detections:**
+- Adjust `DIFF_THRESHOLD` in `config.py` for motion sensitivity
+- Modify `CAT_BRIGHTNESS_THRESHOLD` for detection sensitivity
+- Position camera to minimize lighting changes and moving shadows
+
+## Future Improvements
 
     Upgrade cat detection with ML for higher accuracy
 

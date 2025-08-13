@@ -1,0 +1,15 @@
+[Unit]
+Description=CatNap Watch - Automated Cat Monitoring
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/cat-nap-watch
+Environment=PATH=/home/pi/cat-nap-watch/catnap_env/bin
+ExecStart=/home/pi/cat-nap-watch/catnap_env/bin/python /home/pi/cat-nap-watch/catnap_watch.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
