@@ -142,8 +142,11 @@ CatNapWatch/
 ├── test_camera_email.py  # Camera and email test with photo capture
 ├── test_minimal_camera.py # Minimal memory camera test
 ├── test_two_stage_capture.py # Two-stage capture system test
+├── test_raspistill.py    # Direct camera command test (bypasses OpenCV)
 ├── catnap_watch_lowmem.py # Emergency low-memory version
+├── catnap_watch_ultra_minimal.py # Ultra-minimal using raspistill command
 ├── photo_manager.py      # Photo storage management utility
+├── emergency_memory_liberation.sh # Maximum memory freeing script
 ├── catnap-watch.service  # Systemd service file for auto-start
 ├── .env.example          # Environment variables template
 ├── .env                  # Your actual environment variables (create this)
@@ -163,18 +166,40 @@ The `config.py` file contains all the adjustable settings:
 - `MAX_STORED_PHOTOS`: Maximum number of cat photos to keep (default: 50)
 - `CLEANUP_INTERVAL_HOURS`: How often to clean up old photos (default: 24 hours)
 
-## Memory-Efficient Two-Stage Capture
+## Memory Optimization for Pi Zero
 
-CatNap Watch uses an innovative approach to minimize RAM usage:
+The Raspberry Pi Zero has only 512MB of RAM, requiring special memory management:
 
-- **Motion Detection**: 160x120 grayscale (~0.02 MB per frame)
-- **Cat Photos**: 640x480 full color (~0.9 MB only when cats detected)  
-- **Memory Savings**: ~95% less RAM usage during normal operation
-- **Quality**: High-resolution photos when it matters
+1. **Two-Stage Capture System**: The main application uses 160x120 grayscale for motion detection and 640x480 color only for cat photos (95% memory reduction)
+2. **Emergency Fallback Versions**: Multiple fallback versions for different memory constraints
+3. **System Optimization**: Scripts to disable unnecessary services and maximize available memory
 
-**Configuration:**
-- `MOTION_DETECTION_WIDTH/HEIGHT`: Low-res size for motion detection
-- `PHOTO_CAPTURE_WIDTH/HEIGHT`: High-res size for saved cat photos
+### If Standard Version Fails with Memory Errors
+
+If you get GStreamer allocation errors, try these solutions in order:
+
+1. **First try the ultra-minimal version** (bypasses OpenCV entirely):
+```bash
+python test_raspistill.py  # Test if camera works with raspistill
+python catnap_watch_ultra_minimal.py  # Run ultra-minimal version
+```
+
+2. **If still failing, run emergency memory liberation**:
+```bash
+chmod +x emergency_memory_liberation.sh
+./emergency_memory_liberation.sh
+sudo reboot
+```
+
+3. **After reboot, try ultra-minimal version again**:
+```bash
+python catnap_watch_ultra_minimal.py
+```
+
+The ultra-minimal version:
+- Uses `raspistill` command instead of OpenCV
+- Takes photos at regular intervals (assumes all photos contain cats)
+- Much lower memory usage but no real-time motion detection
 
 ## Photo Management
 
