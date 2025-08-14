@@ -9,7 +9,7 @@ import time
 import os
 import sys
 from datetime import datetime
-from config import WARMUP_TIME, PHOTOS_DIR
+from config import WARMUP_TIME, PHOTOS_DIR, PHOTO_CAPTURE_WIDTH, PHOTO_CAPTURE_HEIGHT, CAMERA_FPS, CAMERA_BUFFER_SIZE
 from catnap_diaries import CatNapDiaries
 
 def test_camera_and_email():
@@ -18,22 +18,27 @@ def test_camera_and_email():
     print("=" * 40)
     
     # Initialize camera
-    print("📸 Initializing camera...")
-    camera = cv2.VideoCapture(0)
+    print("📸 Initializing camera with Pi Zero optimizations...")
+    camera = cv2.VideoCapture(0, cv2.CAP_V4L2)
     
     if not camera.isOpened():
-        print("❌ ERROR: Could not open camera!")
-        print("Make sure:")
-        print("  - Camera is properly connected")
-        print("  - Camera is enabled: sudo raspi-config")
-        print("  - No other processes are using the camera")
-        return False
+        print("⚠️  V4L2 backend failed, trying default backend...")
+        camera = cv2.VideoCapture(0)
+        if not camera.isOpened():
+            print("❌ ERROR: Could not open camera!")
+            print("Make sure:")
+            print("  - Camera is properly connected")
+            print("  - Camera is enabled: sudo raspi-config")
+            print("  - No other processes are using the camera")
+            return False
     
     # Configure camera for Pi Zero
-    print("🔧 Configuring camera settings...")
-    camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    camera.set(cv2.CAP_PROP_FPS, 1)
+    print("🔧 Configuring camera settings for Pi Zero...")
+    camera.set(cv2.CAP_PROP_FRAME_WIDTH, PHOTO_CAPTURE_WIDTH)
+    camera.set(cv2.CAP_PROP_FRAME_HEIGHT, PHOTO_CAPTURE_HEIGHT)
+    camera.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
+    camera.set(cv2.CAP_PROP_BUFFERSIZE, CAMERA_BUFFER_SIZE)
+    camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
     
     # Camera warmup
     print(f"⏳ Camera warming up for {WARMUP_TIME} seconds...")

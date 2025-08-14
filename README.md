@@ -1,7 +1,22 @@
 # CatNap Watch – Automated Cat Perch Monitoring 🐱📸
 Overview
 
-CatNap Watch is a Raspberry Pi project that monitors your cat’s favorite perch or bed. It captures photos at regular intervals, detects when something interesting happens, identifies the cat, and triggers AI-generated updates.
+CatNap Watch is a Raspberry Pi projecHow It Works
+
+CatNap Watch uses a **memory-efficient two-stage capture system** optimized for Pi Zero:
+
+**Stage 1 - Motion Detection (Low Memory):**
+- Captures at 160x120 resolution in grayscale (~0.02 MB per frame)
+- Compares with previous frame to detect interesting activity
+- Uses minimal RAM for continuous monitoring
+
+**Stage 2 - Cat Photography (High Quality):**
+- Only when motion detected, switches to 640x480 full color
+- Analyzes for cat presence and characteristics  
+- Saves high-quality photos and sends AI-generated emails
+- Switches back to low-resolution for next cycle
+
+This approach uses **~95% less memory** during normal monitoring while still capturing high-quality cat photos when needed!rs your cat’s favorite perch or bed. It captures photos at regular intervals, detects when something interesting happens, identifies the cat, and triggers AI-generated updates.
 
 The CatNap Diaries component generates funny, personalized emails written from your cat’s perspective whenever activity is detected. Perfect for keeping up with your furry friend while you’re away—or just enjoying their daily antics!
 Features
@@ -122,8 +137,13 @@ CatNapWatch/
 ├── config.py             # Thresholds, timing, API keys configuration
 ├── requirements.txt      # Python dependencies
 ├── setup_pi.sh           # Automated setup script for Raspberry Pi
+├── optimize_pi_zero.sh   # Pi Zero memory optimization script
 ├── test_catnap.py        # Test script to verify installation
 ├── test_camera_email.py  # Camera and email test with photo capture
+├── test_minimal_camera.py # Minimal memory camera test
+├── test_two_stage_capture.py # Two-stage capture system test
+├── catnap_watch_lowmem.py # Emergency low-memory version
+├── photo_manager.py      # Photo storage management utility
 ├── catnap-watch.service  # Systemd service file for auto-start
 ├── .env.example          # Environment variables template
 ├── .env                  # Your actual environment variables (create this)
@@ -140,6 +160,45 @@ The `config.py` file contains all the adjustable settings:
 - `DIFF_THRESHOLD`: Motion sensitivity (default: 5000)
 - `CAT_BRIGHTNESS_THRESHOLD`: Minimum brightness to detect cat presence
 - `LIGHT_CAT_THRESHOLD`: Threshold to distinguish light vs dark cats
+- `MAX_STORED_PHOTOS`: Maximum number of cat photos to keep (default: 50)
+- `CLEANUP_INTERVAL_HOURS`: How often to clean up old photos (default: 24 hours)
+
+## Memory-Efficient Two-Stage Capture
+
+CatNap Watch uses an innovative approach to minimize RAM usage:
+
+- **Motion Detection**: 160x120 grayscale (~0.02 MB per frame)
+- **Cat Photos**: 640x480 full color (~0.9 MB only when cats detected)  
+- **Memory Savings**: ~95% less RAM usage during normal operation
+- **Quality**: High-resolution photos when it matters
+
+**Configuration:**
+- `MOTION_DETECTION_WIDTH/HEIGHT`: Low-res size for motion detection
+- `PHOTO_CAPTURE_WIDTH/HEIGHT`: High-res size for saved cat photos
+
+## Photo Management
+
+CatNap Watch automatically manages photo storage to prevent filling up your Pi's storage:
+
+- **Only saves photos when cats are detected** (not every frame)
+- **Automatic cleanup**: Removes old photos when limit is reached
+- **Smart comparison**: Each new frame is compared to the most recent interesting frame
+- **Email attachments**: Cat photos are included in email notifications
+
+**Manual photo management:**
+```bash
+# View storage information
+python photo_manager.py --info
+
+# Clean up old photos (keeps newest 50)
+python photo_manager.py --cleanup
+
+# Preview what would be deleted
+python photo_manager.py --cleanup --dry-run
+
+# Custom photo limit
+python photo_manager.py --cleanup --max-photos 25
+```
 
 ## Email Setup (Optional)
 
@@ -175,13 +234,25 @@ This will test:
 python test_camera_email.py
 ```
 
-This focused test will:
-- Take a test photo with your Pi camera
-- Save it with timestamp
-- Email the photo to you (if email is configured)
-- Verify both camera and email functionality
+**For minimal memory testing:**
 
-This is perfect for quickly testing your hardware setup!
+```bash
+python test_minimal_camera.py
+```
+
+**For two-stage capture testing:**
+
+```bash
+python test_two_stage_capture.py
+```
+
+The tests will:
+- **test_catnap.py**: Complete system test (camera, AI, email)
+- **test_camera_email.py**: Camera + email test with normal resolution  
+- **test_minimal_camera.py**: Ultra-low memory camera test (160x120)
+- **test_two_stage_capture.py**: Memory-efficient two-stage system test
+
+Start with `test_two_stage_capture.py` to see the memory savings in action!
 
 ## Troubleshooting
 
@@ -199,6 +270,26 @@ This is perfect for quickly testing your hardware setup!
 - The default settings are optimized for Pi Zero's limited resources
 - Consider increasing `CAPTURE_INTERVAL` if the system is struggling
 - Monitor system resources with `htop`
+
+**GStreamer Memory Issues:**
+If you get "GStreamer warning - failed to allocate enough memory":
+
+⚠️  **IMPORTANT**: Pi Zero has only 512MB RAM. Success isn't guaranteed.
+
+**Step 1 - Try optimizations:**
+1. Run the Pi Zero optimization script: `./optimize_pi_zero.sh`
+2. Reboot your Pi: `sudo reboot`
+3. Test with minimal settings: `python test_minimal_camera.py`
+
+**Step 2 - If still failing:**
+1. Use emergency low-memory mode: `python catnap_watch_lowmem.py`
+2. This uses 160x120 resolution and minimal features
+3. Monitor memory: `./monitor_memory.sh`
+
+**Step 3 - If nothing works:**
+- Consider Pi Zero 2W (4x more RAM) 
+- Use USB camera instead of CSI camera
+- Run without AI features (photos only)
 
 **False Detections:**
 - Adjust `DIFF_THRESHOLD` in `config.py` for motion sensitivity

@@ -5,9 +5,14 @@ from datetime import datetime
 import os
 from config import (
     CAPTURE_INTERVAL, WARMUP_TIME, DIFF_THRESHOLD, MOTION_THRESHOLD,
-    CAT_BRIGHTNESS_THRESHOLD, LIGHT_CAT_THRESHOLD, PHOTOS_DIR, LOG_FILE
+    CAT_BRIGHTNESS_THRESHOLD, LIGHT_CAT_THRESHOLD, PHOTOS_DIR, LOG_FILE,
+    MOTION_DETECTION_WIDTH, MOTION_DETECTION_HEIGHT, 
+    PHOTO_CAPTURE_WIDTH, PHOTO_CAPTURE_HEIGHT,
+    CAMERA_FPS, CAMERA_BUFFER_SIZE,
+    MAX_STORED_PHOTOS, CLEANUP_INTERVAL_HOURS
 )
 from catnap_diaries import CatNapDiaries
+from photo_manager import cleanup_old_photos
 
 # Configure logging
 logging.basicConfig(
@@ -24,52 +29,84 @@ class CatNapWatch:
     def __init__(self):
         """Initialize the CatNap Watch system."""
         self.camera = None
-        self.last_frame = None
+        self.last_frame_gray = None  # Store grayscale for motion detection
         self.diaries = CatNapDiaries()
         self.running = False
+        self.last_cleanup_time = time.time()  # Track when we last cleaned up photos
+        
+    def set_camera_resolution(self, width, height):
+        """Change camera resolution dynamically."""
+        if self.camera and self.camera.isOpened():
+            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+            # Small delay to allow camera to adjust
+            time.sleep(0.1)
         
     def initialize_camera(self):
-        """Initialize and configure the camera."""
+        """Initialize and configure the camera with Pi Zero optimizations."""
         try:
-            logger.info("Initializing camera...")
-            self.camera = cv2.VideoCapture(0)
+            logger.info("Initializing camera with two-stage capture optimization...")
+            
+            # Use CAP_V4L2 backend for better Pi compatibility
+            self.camera = cv2.VideoCapture(0, cv2.CAP_V4L2)
             
             if not self.camera.isOpened():
-                raise Exception("Failed to open camera")
+                # Fallback to default backend
+                logger.warning("V4L2 backend failed, trying default...")
+                self.camera = cv2.VideoCapture(0)
+                if not self.camera.isOpened():
+                    raise Exception("Failed to open camera with any backend")
             
-            # Set camera properties for Pi Zero optimization
-            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            self.camera.set(cv2.CAP_PROP_FPS, 1)  # Low FPS for Pi Zero
+            # Start with low resolution for motion detection (saves RAM)
+            self.set_camera_resolution(MOTION_DETECTION_WIDTH, MOTION_DETECTION_HEIGHT)
+            self.camera.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
+            self.camera.set(cv2.CAP_PROP_BUFFERSIZE, CAMERA_BUFFER_SIZE)
+            
+            # Additional Pi Zero optimizations
+            self.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
+            
+            # Verify settings
+            actual_width = self.camera.get(cv2.CAP_PROP_FRAME_WIDTH)
+            actual_height = self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            logger.info(f"Motion detection resolution: {int(actual_width)}x{int(actual_height)}")
             
             # Camera warmup
             logger.info(f"Camera warming up for {WARMUP_TIME} seconds...")
             time.sleep(WARMUP_TIME)
             
-            # Capture baseline frame
-            ret, self.last_frame = self.camera.read()
+            # Capture and discard a few frames to stabilize
+            for i in range(3):
+                ret, _ = self.camera.read()
+                if ret:
+                    time.sleep(0.1)
+            
+            # Capture baseline frame in grayscale (saves memory)
+            ret, frame = self.camera.read()
             if not ret:
                 raise Exception("Failed to capture baseline image")
             
-            logger.info("Camera initialized successfully")
+            self.last_frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            del frame  # Immediate cleanup of color frame
+            
+            logger.info(f"Camera initialized - baseline: {self.last_frame_gray.shape}")
             return True
             
         except Exception as e:
             logger.error(f"Camera initialization failed: {e}")
             return False
     
-    def is_interesting_frame(self, frame, threshold=DIFF_THRESHOLD):
+    def is_interesting_frame(self, frame_gray, threshold=DIFF_THRESHOLD):
         """
         Determine if the current frame is significantly different from the last frame.
+        Uses grayscale images for memory efficiency.
         Returns True if frame shows interesting activity.
         """
         try:
-            # Convert both frames to grayscale
-            gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            gray_last = cv2.cvtColor(self.last_frame, cv2.COLOR_BGR2GRAY)
+            if self.last_frame_gray is None:
+                return False
             
-            # Calculate absolute difference
-            diff = cv2.absdiff(gray_last, gray_frame)
+            # Calculate absolute difference between grayscale frames
+            diff = cv2.absdiff(self.last_frame_gray, frame_gray)
             
             # Apply threshold to get binary image
             _, thresh = cv2.threshold(diff, MOTION_THRESHOLD, 255, cv2.THRESH_BINARY)
@@ -83,6 +120,49 @@ class CatNapWatch:
         except Exception as e:
             logger.error(f"Error in motion detection: {e}")
             return False
+    
+    def capture_high_res_photo(self):
+        """
+        Switch to high resolution and capture a photo for saving/analysis.
+        Returns the high-res frame or None if failed.
+        """
+        try:
+            logger.info("Switching to high resolution for cat photo...")
+            
+            # Switch to high resolution
+            self.set_camera_resolution(PHOTO_CAPTURE_WIDTH, PHOTO_CAPTURE_HEIGHT)
+            
+            # Give camera time to adjust and stabilize
+            time.sleep(0.5)
+            
+            # Capture a few frames to ensure we get a stable high-res image
+            high_res_frame = None
+            for i in range(3):
+                ret, frame = self.camera.read()
+                if ret:
+                    high_res_frame = frame
+                time.sleep(0.1)
+            
+            # Switch back to low resolution for next motion detection cycle
+            self.set_camera_resolution(MOTION_DETECTION_WIDTH, MOTION_DETECTION_HEIGHT)
+            
+            if high_res_frame is not None:
+                actual_width = high_res_frame.shape[1]
+                actual_height = high_res_frame.shape[0]
+                logger.info(f"Captured high-res photo: {actual_width}x{actual_height}")
+                return high_res_frame
+            else:
+                logger.error("Failed to capture high-res photo")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error capturing high-res photo: {e}")
+            # Ensure we switch back to low res even on error
+            try:
+                self.set_camera_resolution(MOTION_DETECTION_WIDTH, MOTION_DETECTION_HEIGHT)
+            except:
+                pass
+            return None
     
     def detect_cat_presence(self, frame):
         """
@@ -157,28 +237,17 @@ class CatNapWatch:
             logger.error(f"Error saving photo: {e}")
             return None
     
-    def process_cat_detection(self, frame):
-        """Process a frame where a cat has been detected."""
-        try:
-            logger.info("Cat detected! Processing...")
-            
-            # Save the photo
-            photo_path = self.save_cat_photo(frame)
-            
-            # Identify cat characteristics
-            cat_color = self.identify_cat_color(frame)
-            
-            # Generate and send cat diary email
-            logger.info(f"Generating CatNap Diaries email for {cat_color} cat...")
-            success = self.diaries.create_and_send_update(cat_color, photo_path)
-            
-            if success:
-                logger.info("CatNap Diaries email sent successfully!")
-            else:
-                logger.warning("Failed to send CatNap Diaries email")
-                
-        except Exception as e:
-            logger.error(f"Error processing cat detection: {e}")
+    def periodic_cleanup(self):
+        """Perform periodic cleanup of old photos if needed."""
+        current_time = time.time()
+        hours_since_cleanup = (current_time - self.last_cleanup_time) / 3600
+        
+        if hours_since_cleanup >= CLEANUP_INTERVAL_HOURS:
+            logger.info("Performing periodic photo cleanup...")
+            deleted_count = cleanup_old_photos(MAX_STORED_PHOTOS)
+            if deleted_count > 0:
+                logger.info(f"Cleaned up {deleted_count} old photos")
+            self.last_cleanup_time = current_time
     
     def cleanup(self):
         """Clean up resources."""
@@ -187,37 +256,80 @@ class CatNapWatch:
             logger.info("Camera released")
     
     def run(self):
-        """Main monitoring loop."""
+        """Main monitoring loop with two-stage capture for memory efficiency."""
         try:
-            logger.info("Starting CatNap Watch...")
+            logger.info("Starting CatNap Watch with two-stage capture...")
             
             if not self.initialize_camera():
                 logger.error("Failed to initialize camera. Exiting.")
                 return False
             
             self.running = True
-            logger.info(f"Monitoring started. Capturing every {CAPTURE_INTERVAL} seconds.")
+            logger.info(f"Monitoring started. Low-res motion detection every {CAPTURE_INTERVAL} seconds.")
+            logger.info(f"Motion detection: {MOTION_DETECTION_WIDTH}x{MOTION_DETECTION_HEIGHT}")
+            logger.info(f"Cat photos: {PHOTO_CAPTURE_WIDTH}x{PHOTO_CAPTURE_HEIGHT}")
             
             while self.running:
                 try:
-                    # Capture new frame
-                    ret, frame = self.camera.read()
+                    # Stage 1: Capture low-resolution frame for motion detection (saves RAM)
+                    ret, low_res_frame = self.camera.read()
                     if not ret:
-                        logger.warning("Failed to capture frame")
+                        logger.warning("Failed to capture motion detection frame")
                         continue
                     
+                    # Convert to grayscale immediately to save memory
+                    current_gray = cv2.cvtColor(low_res_frame, cv2.COLOR_BGR2GRAY)
+                    del low_res_frame  # Immediate cleanup of color frame
+                    
                     # Check if this frame shows interesting activity
-                    if self.is_interesting_frame(frame):
+                    is_interesting = self.is_interesting_frame(current_gray)
+                    
+                    if is_interesting:
                         logger.info("Interesting activity detected!")
                         
-                        # Update our baseline
-                        self.last_frame = frame.copy()
+                        # Stage 2: Switch to high resolution for detailed analysis
+                        high_res_frame = self.capture_high_res_photo()
                         
-                        # Check if a cat is present
-                        if self.detect_cat_presence(frame):
-                            self.process_cat_detection(frame)
-                        else:
-                            logger.info("Activity detected but no cat identified")
+                        if high_res_frame is not None:
+                            # Check if a cat is present in the high-res frame
+                            cat_detected = self.detect_cat_presence(high_res_frame)
+                            
+                            if cat_detected:
+                                logger.info("Cat detected in high-res frame!")
+                                
+                                # Save the high-res photo and send email
+                                photo_path = self.save_cat_photo(high_res_frame)
+                                cat_color = self.identify_cat_color(high_res_frame)
+                                
+                                logger.info(f"Generating CatNap Diaries email for {cat_color} cat...")
+                                success = self.diaries.create_and_send_update(cat_color, photo_path)
+                                
+                                if success:
+                                    logger.info("CatNap Diaries email sent successfully!")
+                                else:
+                                    logger.warning("Failed to send CatNap Diaries email")
+                            else:
+                                logger.info("Activity detected but no cat identified in high-res frame")
+                            
+                            # Clean up high-res frame
+                            del high_res_frame
+                        
+                        # Update baseline to current low-res grayscale frame
+                        if self.last_frame_gray is not None:
+                            del self.last_frame_gray
+                        self.last_frame_gray = current_gray.copy()
+                        logger.debug("Updated motion detection baseline")
+                        
+                    else:
+                        # No interesting activity - discard current frame
+                        logger.debug("No significant changes detected - frame discarded")
+                    
+                    # Clean up current grayscale frame if not used as baseline
+                    if not is_interesting:
+                        del current_gray
+                    
+                    # Perform periodic cleanup of old photos
+                    self.periodic_cleanup()
                     
                     # Wait before next capture
                     time.sleep(CAPTURE_INTERVAL)
