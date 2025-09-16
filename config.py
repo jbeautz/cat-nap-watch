@@ -62,13 +62,27 @@ MOTION_COOLDOWN_SECONDS = float(os.getenv("MOTION_COOLDOWN_SECONDS", 5.0))
 SAVE_ALL_MOTION_SHOTS = os.getenv("SAVE_ALL_MOTION_SHOTS", "0") == "1"
 
 # ---------------------------
+# Baseline (no-cat) reference image comparison
+# ---------------------------
+# Path to the baseline "no cat" image used for comparisons
+PHOTOS_DIR = "photos"
+BASELINE_IMAGE_PATH = os.getenv("BASELINE_IMAGE_PATH", os.path.join(PHOTOS_DIR, "baseline_nocat.jpg"))
+
+# Thresholds for baseline comparison
+# Number of changed pixels (after diff+threshold) required to call it a cat/event
+BASELINE_DIFF_THRESHOLD = int(os.getenv("BASELINE_DIFF_THRESHOLD", 30000))
+# Binary threshold applied to absdiff; lower detects smaller changes
+BASELINE_BINARY_THRESHOLD = int(os.getenv("BASELINE_BINARY_THRESHOLD", 30))
+# Optional Gaussian blur kernel size (odd integer); 0 disables
+BASELINE_BLUR_KERNEL = int(os.getenv("BASELINE_BLUR_KERNEL", 5))
+
+# ---------------------------
 # OpenAI settings
 # ---------------------------
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = "gpt-4o-mini"
 
 # File paths
-PHOTOS_DIR = "photos"
 LOG_FILE = "catnap_watch.log"
 
 # Photo management

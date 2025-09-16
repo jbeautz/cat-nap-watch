@@ -37,6 +37,12 @@ from config import (
     LOG_FILE,
     MAX_STORED_PHOTOS,
     CLEANUP_INTERVAL_HOURS,
+    # New baseline comparison settings
+    BASELINE_IMAGE_PATH,
+    BASELINE_DIFF_THRESHOLD,
+    BASELINE_BINARY_THRESHOLD,
+    BASELINE_BLUR_KERNEL,
+    WARMUP_TIME,
 )
 from catnap_diaries import CatNapDiaries
 from photo_manager import cleanup_old_photos
@@ -57,6 +63,7 @@ class PIRUSBCameraWatcher:
         self.cap = None
         self.last_motion_time = 0
         self.last_cleanup_time = time.time()
+        self.baseline_gray = None
 
     def _try_configure_cap(self, cap, try_mjpg=True):
         if try_mjpg:
@@ -118,7 +125,56 @@ class PIRUSBCameraWatcher:
                 return frame
         return None
 
+    def _ensure_baseline(self):
+        """Load baseline gray image from disk or capture and save if missing."""
+        os.makedirs(os.path.dirname(BASELINE_IMAGE_PATH), exist_ok=True)
+        if os.path.exists(BASELINE_IMAGE_PATH):
+            img = cv2.imread(BASELINE_IMAGE_PATH)
+            if img is not None:
+                self.baseline_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                logger.info(f"Loaded baseline image: {BASELINE_IMAGE_PATH}")
+                return True
+            else:
+                logger.warning("Baseline image exists but could not be read; recapturing...")
+        # Capture new baseline
+        logger.info("Capturing baseline 'no cat' image in current scene...")
+        if not self.cap and not self._open_camera():
+            logger.error("Cannot open camera to capture baseline")
+            return False
+        time.sleep(max(0.2, WARMUP_TIME))
+        # discard a couple frames
+        for _ in range(3):
+            self.cap.read()
+        ret, frame = self.cap.read()
+        if not ret or frame is None:
+            logger.error("Failed to capture baseline frame")
+            return False
+        if not cv2.imwrite(BASELINE_IMAGE_PATH, frame):
+            logger.error("Failed to save baseline image")
+            return False
+        self.baseline_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        logger.info(f"Baseline saved to {BASELINE_IMAGE_PATH}")
+        return True
+
+    def _compare_to_baseline(self, frame):
+        """Return count of changed pixels vs baseline using configured thresholds."""
+        if self.baseline_gray is None:
+            if not self._ensure_baseline():
+                return 0
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        if BASELINE_BLUR_KERNEL and BASELINE_BLUR_KERNEL % 2 == 1:
+            gray = cv2.GaussianBlur(gray, (BASELINE_BLUR_KERNEL, BASELINE_BLUR_KERNEL), 0)
+            base = cv2.GaussianBlur(self.baseline_gray, (BASELINE_BLUR_KERNEL, BASELINE_BLUR_KERNEL), 0)
+        else:
+            base = self.baseline_gray
+        diff = cv2.absdiff(base, gray)
+        _, thresh = cv2.threshold(diff, BASELINE_BINARY_THRESHOLD, 255, cv2.THRESH_BINARY)
+        changed = cv2.countNonZero(thresh)
+        logger.info(f"Baseline diff changed pixels: {changed} (threshold: {BASELINE_DIFF_THRESHOLD})")
+        return changed
+
     def _detect_cat(self, frame):
+        # Kept for reference; not used when baseline comparison is enabled
         try:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             mean_brightness = gray.mean()
@@ -174,13 +230,15 @@ class PIRUSBCameraWatcher:
         if frame is None:
             logger.error("Capture failed")
             return
-        is_cat = self._detect_cat(frame)
+        # Compare against baseline image
+        changed = self._compare_to_baseline(frame)
+        is_cat = changed > BASELINE_DIFF_THRESHOLD
         if is_cat or SAVE_ALL_MOTION_SHOTS:
             path = self._save_photo(frame)
             color = self._cat_color(frame)
             self.diaries.create_and_send_update(color, path)
         else:
-            logger.info("No cat detected; not saving photo")
+            logger.info("Change below threshold; not saving photo")
         self._periodic_cleanup()
 
     def run(self):
@@ -194,8 +252,13 @@ class PIRUSBCameraWatcher:
                 # Fallback for dummy or older RPi.GPIO
                 GPIO.setup(PIR_GPIO_PIN, GPIO.IN)
 
-            # Prime camera once to avoid first-shot lag
-            self._open_camera()
+            # Prime camera once and capture/load baseline
+            if not self._open_camera():
+                logger.error("Camera not available")
+                return
+            if not self._ensure_baseline():
+                logger.error("Failed to initialize baseline image")
+                return
 
             logger.info("Waiting for motion... (press Ctrl+C to stop)")
             # If add_event_detect isn't reliable in your environment, poll in a loop instead
