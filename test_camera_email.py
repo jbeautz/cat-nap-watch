@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Camera Test Script for CatNap Watch
-Takes a test photo and emails it to verify camera and email functionality
+Camera + Email Test for PIR + USB Camera setup
+Captures a single frame from the configured USB camera and emails it.
 """
 
 import cv2
@@ -9,79 +9,89 @@ import time
 import os
 import sys
 from datetime import datetime
-from config import WARMUP_TIME, PHOTOS_DIR, PHOTO_CAPTURE_WIDTH, PHOTO_CAPTURE_HEIGHT, CAMERA_FPS, CAMERA_BUFFER_SIZE
+from config import (
+    CAMERA_DEVICE_ID,
+    FRAME_WIDTH, FRAME_HEIGHT,
+    WARMUP_TIME,
+    PHOTOS_DIR,
+    USE_MJPG,
+)
 from catnap_diaries import CatNapDiaries
 
+
+def _try_configure_cap(cap, try_mjpg=True):
+    if try_mjpg:
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+    else:
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'YUYV'))
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    time.sleep(0.3)
+    for _ in range(2):
+        cap.read()
+    return cap.read()
+
+
+def open_usb_camera():
+    indices = range(0, 6) if CAMERA_DEVICE_ID < 0 else [CAMERA_DEVICE_ID]
+    for idx in indices:
+        print(f"Trying /dev/video{idx}...")
+        cap = cv2.VideoCapture(idx, cv2.CAP_V4L2)
+        if not cap.isOpened():
+            cap.release()
+            continue
+        ret, frame = _try_configure_cap(cap, try_mjpg=USE_MJPG)
+        if not (ret and frame is not None):
+            print("  MJPG failed; trying YUYV...")
+            ret, frame = _try_configure_cap(cap, try_mjpg=False)
+        if ret and frame is not None:
+            print(f"Opened camera at {frame.shape[1]}x{frame.shape[0]} on index {idx}")
+            return cap
+        cap.release()
+    return None
+
+
 def test_camera_and_email():
-    """Test camera capture and email functionality."""
-    print("🎥 CatNap Watch Camera & Email Test")
+    print("🎥 USB Camera & Email Test")
     print("=" * 40)
-    
-    # Initialize camera
-    print("📸 Initializing camera with Pi Zero optimizations...")
-    camera = cv2.VideoCapture(0, cv2.CAP_V4L2)
-    
-    if not camera.isOpened():
-        print("⚠️  V4L2 backend failed, trying default backend...")
-        camera = cv2.VideoCapture(0)
-        if not camera.isOpened():
-            print("❌ ERROR: Could not open camera!")
-            print("Make sure:")
-            print("  - Camera is properly connected")
-            print("  - Camera is enabled: sudo raspi-config")
-            print("  - No other processes are using the camera")
-            return False
-    
-    # Configure camera for Pi Zero
-    print("🔧 Configuring camera settings for Pi Zero...")
-    camera.set(cv2.CAP_PROP_FRAME_WIDTH, PHOTO_CAPTURE_WIDTH)
-    camera.set(cv2.CAP_PROP_FRAME_HEIGHT, PHOTO_CAPTURE_HEIGHT)
-    camera.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
-    camera.set(cv2.CAP_PROP_BUFFERSIZE, CAMERA_BUFFER_SIZE)
-    camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-    
-    # Camera warmup
-    print(f"⏳ Camera warming up for {WARMUP_TIME} seconds...")
-    time.sleep(WARMUP_TIME)
-    
-    # Take countdown photos
-    print("\n📷 Taking test photos...")
-    for i in range(3, 0, -1):
-        print(f"   Photo in {i}...")
-        time.sleep(1)
-    
-    print("   📸 SNAP!")
-    
-    # Capture the photo
-    ret, frame = camera.read()
-    camera.release()
-    
-    if not ret:
-        print("❌ ERROR: Failed to capture image from camera!")
+
+    os.makedirs(PHOTOS_DIR, exist_ok=True)
+
+    cap = open_usb_camera()
+    if not cap:
+        print("❌ Could not open any USB camera. Check connections and permissions.")
         return False
-    
-    # Save the test photo
+
+    print(f"⏳ Warming up for {WARMUP_TIME} seconds...")
+    time.sleep(WARMUP_TIME)
+
+    print("📸 Capturing...")
+    for _ in range(2):
+        cap.read()
+    ret, frame = cap.read()
+    cap.release()
+
+    if not ret or frame is None:
+        print("❌ Failed to capture frame")
+        return False
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"camera_test_{timestamp}.jpg"
     filepath = os.path.join(PHOTOS_DIR, filename)
-    
-    success = cv2.imwrite(filepath, frame)
-    if not success:
-        print("❌ ERROR: Failed to save image!")
+
+    if not cv2.imwrite(filepath, frame):
+        print("❌ Failed to save image")
         return False
-    
+
     print(f"✅ Photo saved: {filepath}")
-    print(f"   Image size: {frame.shape[1]}x{frame.shape[0]} pixels")
-    
-    # Test email functionality
-    print("\n📧 Testing email functionality...")
+
+    print("\n📧 Sending test email...")
     try:
         diaries = CatNapDiaries()
-        
-        # Create a test email
-        test_email = f"""Subject: 📸 CatNap Watch Camera Test - {datetime.now().strftime('%Y-%m-%d %H:%M')}
+        email = f"""Subject: 📸 CatNap Watch USB Camera Test - {datetime.now().strftime('%Y-%m-%d %H:%M')}
 
-Hello from your CatNap Watch system! 📱
+Hello from your CatNap Watch (PIR + USB) setup! 📱
 
 This is a test message to verify that your camera and email system are working correctly.
 
@@ -107,81 +117,28 @@ CatNap Watch System
 Automated Cat Perch Monitoring"""
 
         # Send the test email with photo attachment
-        success = diaries.send_email(test_email, filepath)
-        
-        if success:
-            print("✅ Test email sent successfully!")
-            print("   Check your email inbox for the test message with photo attachment.")
+        ok = diaries.send_email(email, filepath)
+        if ok:
+            print("✅ Email sent (or printed if email not configured)")
         else:
-            print("⚠️  Email sending failed, but this might be normal if email isn't configured.")
-            print("   The photo was still saved locally for testing.")
-        
+            print("⚠️ Email send failed; check .env settings")
     except Exception as e:
-        print(f"⚠️  Email test encountered an error: {e}")
-        print("   This is normal if email credentials aren't configured yet.")
-        print("   The camera test was still successful!")
-    
-    print("\n🎯 Test Summary:")
-    print(f"   📸 Camera: ✅ Working (photo saved: {filename})")
-    print(f"   💾 Storage: ✅ Working (saved to: {PHOTOS_DIR}/)")
-    
-    # Display next steps
-    print("\n🚀 Next Steps:")
-    print("   1. Check the saved photo to verify image quality")
-    print("   2. If email didn't work, configure your .env file with email credentials")
-    print("   3. Run the full test suite: python test_catnap.py")
-    print("   4. Start monitoring: python catnap_watch.py")
-    
+        print(f"⚠️ Email test error: {e}")
+
     return True
 
-def show_camera_info():
-    """Display camera information and settings."""
-    print("\n🔍 Camera Information:")
-    try:
-        camera = cv2.VideoCapture(0)
-        if camera.isOpened():
-            width = camera.get(cv2.CAP_PROP_FRAME_WIDTH)
-            height = camera.get(cv2.CAP_PROP_FRAME_HEIGHT)
-            fps = camera.get(cv2.CAP_PROP_FPS)
-            print(f"   Resolution: {int(width)}x{int(height)}")
-            print(f"   FPS: {fps}")
-            camera.release()
-        else:
-            print("   ❌ Camera not accessible")
-    except Exception as e:
-        print(f"   ⚠️  Could not get camera info: {e}")
 
 def main():
-    """Main function to run camera and email test."""
-    print("🐱 Welcome to CatNap Watch Camera Test!")
-    print("This script will test your camera and email setup.\n")
-    
-    # Check if photos directory exists
     if not os.path.exists(PHOTOS_DIR):
-        print(f"📁 Creating photos directory: {PHOTOS_DIR}")
         os.makedirs(PHOTOS_DIR)
-    
-    # Show camera info
-    show_camera_info()
-    
-    # Ask user if they're ready
     try:
-        input("\n📸 Press ENTER when you're ready to take a test photo (or Ctrl+C to exit)...")
+        input("Press ENTER to capture a test image...")
     except KeyboardInterrupt:
-        print("\n👋 Test cancelled. Goodbye!")
+        print("Cancelled")
         sys.exit(0)
-    
-    # Run the test
-    success = test_camera_and_email()
-    
-    if success:
-        print("\n🎉 Camera test completed successfully!")
-        print("Your CatNap Watch hardware is ready to monitor cats! 🐱")
-    else:
-        print("\n❌ Camera test failed. Please check the error messages above.")
-        print("Make sure your camera is connected and enabled.")
-    
-    print("\n📚 For more help, check the troubleshooting section in README.md")
+    ok = test_camera_and_email()
+    print("\nDone." if ok else "\nFailed.")
+
 
 if __name__ == "__main__":
     main()

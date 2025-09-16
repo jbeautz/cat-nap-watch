@@ -1,5 +1,5 @@
 [Unit]
-Description=CatNap Watch - Automated Cat Monitoring
+Description=CatNap Watch - Automated Cat Monitoring (PIR + USB Camera)
 After=network.target
 
 [Service]
@@ -7,7 +7,7 @@ Type=simple
 User=pi
 WorkingDirectory=/home/pi/cat-nap-watch
 Environment=PATH=/home/pi/cat-nap-watch/catnap_env/bin
-ExecStart=/home/pi/cat-nap-watch/catnap_env/bin/python /home/pi/cat-nap-watch/catnap_watch.py
+ExecStart=/home/pi/cat-nap-watch/catnap_env/bin/python /home/pi/cat-nap-watch/catnap_watch_pir_usb.py
 Restart=always
 RestartSec=10
 

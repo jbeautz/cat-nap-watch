@@ -74,6 +74,44 @@ python test_camera_email.py
 python catnap_watch.py
 ```
 
+## New: PIR Sensor (BISS0001) + U20CAM-720P USB Camera
+
+If you have a BISS0001-based PIR motion sensor (e.g., HC-SR501) and a U20CAM-720P USB camera, you can run CatNap Watch in a motion-triggered mode: it will only take a photo when motion is detected and then determine if there is a cat in the photo.
+
+### Wiring (BCM pin numbering)
+- PIR VCC → 5V (or 3.3V if your module supports it)
+- PIR GND → GND
+- PIR OUT → GPIO17 (default; configurable via `PIR_GPIO_PIN`)
+
+Most HC-SR501 modules output 3.3V on OUT, which is safe for GPIO. Verify your specific module.
+
+### Install dependencies
+```bash
+sudo apt-get update
+sudo apt-get install -y python3-rpi.gpio v4l-utils
+pip install opencv-python
+```
+
+### Configure (optional)
+Set these env vars in `.env` or export in shell:
+```
+PIR_GPIO_PIN=17
+CAMERA_DEVICE_ID=0     # -1 to auto-scan 0-5
+FRAME_WIDTH=1280
+FRAME_HEIGHT=720
+USE_MJPG=1
+CAPTURE_DELAY_AFTER_MOTION=0.6
+MOTION_COOLDOWN_SECONDS=5
+SAVE_ALL_MOTION_SHOTS=0
+```
+
+### Run motion-triggered watcher
+```bash
+python catnap_watch_pir_usb.py
+```
+
+Photos save to `photos/`. If a cat is detected, an email can be generated/sent as before (configure `.env` for email and OpenAI).
+
 ## Manual Setup Steps
 
 If you prefer manual installation:
@@ -165,6 +203,13 @@ The `config.py` file contains all the adjustable settings:
 - `LIGHT_CAT_THRESHOLD`: Threshold to distinguish light vs dark cats
 - `MAX_STORED_PHOTOS`: Maximum number of cat photos to keep (default: 50)
 - `CLEANUP_INTERVAL_HOURS`: How often to clean up old photos (default: 24 hours)
+- `PIR_GPIO_PIN`: GPIO pin for PIR output (default: 17)
+- `CAMERA_DEVICE_ID`: USB camera index (default: 0; -1 to auto-scan)
+- `FRAME_WIDTH`/`FRAME_HEIGHT`: USB camera resolution (e.g., 1280x720)
+- `USE_MJPG`: Use MJPG format for faster USB capture
+- `CAPTURE_DELAY_AFTER_MOTION`: Delay after motion before capture
+- `MOTION_COOLDOWN_SECONDS`: Cooldown between motion-triggered captures
+- `SAVE_ALL_MOTION_SHOTS`: Save even when no cat detected
 
 ## Memory Optimization for Pi Zero
 

@@ -8,7 +8,7 @@ load_dotenv()
 # Configuration Settings
 # ---------------------------
 
-# Camera settings
+# Camera settings (legacy interval-based capture)
 CAPTURE_INTERVAL = 60  # seconds between captures
 WARMUP_TIME = 2  # seconds for camera warmup
 
@@ -26,7 +26,7 @@ EMERGENCY_CAMERA_WIDTH = 160   # Ultra-low resolution
 EMERGENCY_CAMERA_HEIGHT = 120  # Ultra-low resolution
 JPEG_QUALITY = 70              # Compressed image quality to save memory
 
-# Motion detection thresholds
+# Motion detection thresholds (legacy frame-diff)
 DIFF_THRESHOLD = 5000  # adjust for motion sensitivity
 MOTION_THRESHOLD = 50  # threshold for binary conversion in motion detection
 
@@ -34,7 +34,36 @@ MOTION_THRESHOLD = 50  # threshold for binary conversion in motion detection
 CAT_BRIGHTNESS_THRESHOLD = 50  # minimum brightness to assume cat presence
 LIGHT_CAT_THRESHOLD = 100  # threshold to distinguish light vs dark cat
 
+# ---------------------------
+# New: PIR + USB camera configuration
+# ---------------------------
+# PIR motion sensor (BISS0001 module, e.g., HC-SR501)
+# BCM pin number for PIR output (default GPIO17)
+PIR_GPIO_PIN = int(os.getenv("PIR_GPIO_PIN", 17))
+
+# USB camera device selection for OpenCV
+# Set to specific index (e.g., 0 for /dev/video0); set to -1 to auto-scan 0-5
+CAMERA_DEVICE_ID = int(os.getenv("CAMERA_DEVICE_ID", 0))
+
+# Preferred capture resolution for USB cam (e.g., U20CAM-720P supports 1280x720)
+FRAME_WIDTH = int(os.getenv("FRAME_WIDTH", 1280))
+FRAME_HEIGHT = int(os.getenv("FRAME_HEIGHT", 720))
+
+# Try MJPG for better USB cam performance
+USE_MJPG = os.getenv("USE_MJPG", "1") == "1"
+
+# Delay after PIR triggers before capturing (let subject settle)
+CAPTURE_DELAY_AFTER_MOTION = float(os.getenv("CAPTURE_DELAY_AFTER_MOTION", 0.6))
+
+# Cooldown to avoid spamming captures when motion is continuous
+MOTION_COOLDOWN_SECONDS = float(os.getenv("MOTION_COOLDOWN_SECONDS", 5.0))
+
+# Save every motion shot even if no cat detected
+SAVE_ALL_MOTION_SHOTS = os.getenv("SAVE_ALL_MOTION_SHOTS", "0") == "1"
+
+# ---------------------------
 # OpenAI settings
+# ---------------------------
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = "gpt-4o-mini"
 

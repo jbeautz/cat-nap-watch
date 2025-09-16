@@ -1,9 +1,8 @@
 #!/bin/bash
 
-# Quick Start Script for CatNap Watch
-# This script activates the virtual environment and starts the application
+# Quick Start Script for CatNap Watch (PIR + USB Camera)
 
-echo "🐱 Starting CatNap Watch..."
+echo "🐱 Starting CatNap Watch (PIR + USB Camera)..."
 
 # Check if virtual environment exists
 if [ ! -d "catnap_env" ]; then
@@ -20,6 +19,6 @@ fi
 # Activate virtual environment
 source catnap_env/bin/activate
 
-# Start the application
-echo "🚀 Launching CatNap Watch..."
-python catnap_watch.py
+# Start the PIR + USB watcher
+echo "🚀 Launching CatNap Watch (motion-triggered)..."
+python catnap_watch_pir_usb.py
